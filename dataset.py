@@ -2,11 +2,55 @@ from PIL import Image
 import torch
 import torchvision.transforms as tvt 
 from torch.utils.data import DataLoader
+import torch.nn.functional as F 
 
-def pil_loader(path):
+
+# Mapping Pokemon type names to class labels 
+TYPE_TO_LABEL = {
+    'Normal': 0, 'Fire': 1, 'Water': 2, 'Grass': 3, 'Flying': 4, 'Fighting': 5, 'Poison': 6, 'Electric': 7, 'Ground': 8, 'Rock': 9, 'Psychic': 10, 'Ice': 11, 'Bug': 12, 'Ghost': 13, 'Steel': 14, 'Dragon': 15, 'Dark': 16, 'Fairy': 17
+}
+
+# Mapping Pokemon class labels to type names
+LABEL_TO_TYPE = {v:k for (k,v) in TYPE_TO_LABEL.items()}
+
+NUM_TYPES = 18
+
+def pil_loader(path: str) -> PIL.Image:
+    '''
+    Load image using PIL.
+
+    Parameters
+    ----------
+    path: str
+        path to image file
+
+    Returns
+    -------
+    PIL Image: RGB loaded PIL image
+    '''
     with Image.open(path) as im:
         im = im.convert('RGB')
         return im 
+
+
+def label_to_class_encoding(type_label: str) -> torch.Tensor:
+    '''
+    Converts pokemon type given in training CSV to an encoded tensor of size (num_classes, ) to be used by the network. For example, a type_label of "Electric/Ghost" would have a class encoding of [0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0].
+
+    Parameters
+    ----------
+    type_label: str
+        Pokemon type, with multiple types seperated by /
+
+    Returns
+    -------
+    torch.Tensor: class encoding 
+    '''
+    types = type_label.split('/')
+    labels = [TYPE_TO_LABEL[typ] for typ in types]
+    label_encoding = torch.zeros(NUM_TYPES, dtype=int)
+    label_encoding[labels] = 1
+    return label_encoding
 
 
 class PokemonSpriteDataset(torch.utils.Dataset):
@@ -38,7 +82,7 @@ class PokemonSpriteDataset(torch.utils.Dataset):
             # tvt.Normalize((0.5, 0.5, 0.5,), (0.5, 0.5, 0.5,))
         ])
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         '''
         Grab item from the dataset.
 
@@ -54,7 +98,9 @@ class PokemonSpriteDataset(torch.utils.Dataset):
         '''
         img = pil_loader(self.sprite_paths[i])
         img = self.transform(img)
-        label = self.sprite_labels[i]
+
+        typ = self.sprite_types[i]
+        label = label_to_class_encoding(typ)
         
         return img, label 
 
