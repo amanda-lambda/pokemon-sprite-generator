@@ -4,6 +4,8 @@ Networks for the Pokemon sprite generator.
 References:
 
 '''
+import os
+from glob import glob
 import torch
 from torch import nn
 from torch.autograd import Variable
@@ -13,7 +15,7 @@ from dataset import NUM_TYPES
 
 class SpriteGAN(nn.Module):
 
-    def __init__(self, lr, ngf: int = 32, ndf: int = 32, latent_dim: int = 10):
+    def __init__(self, lr: float, batch_size: int, ngf: int = 32, ndf: int = 32, latent_dim: int = 10):
         '''
         Pokemon sprite generator. 
         A combination of a conditional variational autoencoder (for stability and attribute control) and a GAN (for generation power).
@@ -32,6 +34,8 @@ class SpriteGAN(nn.Module):
             set to True if we want to train the network
         '''
         super(SpriteGAN, self).__init__()
+        self.batch_size = batch_size
+        self.latent_dim = latent_dim 
 
         # Networks
         self.encoder = Encoder(ngf, latent_dim)
@@ -45,9 +49,8 @@ class SpriteGAN(nn.Module):
         self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr)
 
         # Losses 
-        self.z_prior = Variable(torch.FloatTensor(batchSize*n_z).uniform_(-1,1)).view(batchSize,n_z)
-        self.real_label = Variable(torch.ones(batchSize).fill_(1)).view(-1,1)
-        self.fake_label = Variable(torch.ones(batchSize).fill_(0)).view(-1,1)
+        self.real_label = torch.ones(batch_size)
+        self.fake_label = torch.zeros(batch_size)
     
     def forward(self, x: torch.Tensor, y: torch.Tensor):
 
@@ -60,17 +63,18 @@ class SpriteGAN(nn.Module):
         conf_latent = self.disc_latent(z)
 
         recon_loss = F.l1_loss(x_recon, x)
-        gan_loss = F.inary_cross_entropy(conf_image, real_label)
+        gan_loss = F.binary_cross_entropy_with_logits(conf_image, real_label)
         gen_loss = recon_loss + 1e-4 * gan_loss
         gen_loss.backward()
         self.opt_generator.step()
 
         # Latent Discriminator loss
         self.disc_latent.zero_grad()
-        conf_z_prior = self.disc_latent(self.z_prior)
+        z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        conf_z_prior = self.disc_latent(z_prior)
         conf_z = self.disc_latent(z.detach())
 
-        disc_latent_loss = F.binary_cross_entropy(conf_z_prior, self.real_label)
+        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label)
         disc_latent_loss.backward()
         self.opt_disc_latent.step()
 
@@ -79,7 +83,7 @@ class SpriteGAN(nn.Module):
         conf_x = self.disc_image(x, y)
         conf_x_recon = self.disc_image(x_recon.detach(), y)
 
-        disc_image_loss = F.binary_cross_entropy(conf_x, self.real_label) + F.binary_cross_entropy(conf_x_recon, self.fake_label)
+        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
         disc_image_loss.backward()
         self.opt_disc_image.step()
 
@@ -92,6 +96,66 @@ class SpriteGAN(nn.Module):
             'discriminator/image_loss': disc_image_Loss
         }
         return loss_dict
+    
+    def sample(self, y: torch.Tensor):
+        '''
+        Sample a pokemon image with types <y>.
+
+        Parameters
+        ----------
+        y: torch.Tensor
+            one-hot encoding of pokemon types
+        '''
+        z = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        x = self.decoder(z, y)
+        return x 
+
+    
+    def save(self, save_dir: str, epoch: int) -> None:
+        '''
+        Save network weights.
+
+        Parameters
+        ----------
+        save_dir: str
+            path to save network weights
+        epoch: int
+            current epoch
+        '''
+        # Save
+        torch.save(self.encoder.state_dict(), os.path.join(save_dir, "%i_enc.pth" % epoch))
+        torch.save(self.decoder.state_dict(), os.path.join(save_dir, "%i_dec.pth" % epoch))
+        torch.save(self.disc_image.state_dict(), os.path.join(save_dir, "%i_disc_image.pth" % epoch))
+        torch.save(self.disc_latent.state_dict(), os.path.join(save_dir, "%i_disc_latent.pth" % epoch))
+
+        # Only keep three most recent saves of our four models
+        num_keep = 3 * 4
+        fs = glob(os.path.join(save_dir, '*.pth'))
+        fs.sort(key=os.path.getmtime)
+        for f in fs[:-num_keep]:
+            os.remove(f)
+
+    
+    def load(self, load_dir: str) -> None:
+        '''
+        Load network weights.
+
+        Parameters
+        ----------
+        load_dir: str
+            path to load network weights from
+        '''
+        # Find most recent epoch
+        fs = glob(os.path.join(save_dir, '*.pth'))
+        fs.sort(key=os.path.getmtime)
+        epoch = int(fs[-1].split('_')[0])
+
+        # Load
+        self.encoder.load_state_dict(torch.load(os.path.join(load_dir, "%i_enc.pth" % epoch))
+        self.decoder.load_state_dict(torch.load(os.path.join(load_dir, "%i_dec.pth" % epoch))
+        self.disc_image.load_state_dict(torch.load(os.path.join(load_dir, "%i_disc_image.pth" % epoch))
+        self.disc_latent.load_state_dict(torch.load(os.path.join(load_dir, "%i_disc_latent.pth" % epoch))
+
 
 
 
@@ -270,8 +334,7 @@ class DiscriminatorImage(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(8*8*img_size,1024),
             nn.ReLU()
-            nn.Linear(1024,1),
-            nn.Sigmoid()
+            nn.Linear(1024,1)
         )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -318,8 +381,7 @@ class DiscriminatorLatent(nn.Module):
             nn.ReLU(),
             nn.Linear(num_filters*2,num_filters),
             nn.ReLU(),
-            nn.Linear(num_filters,1),
-            nn.Sigmoid()
+            nn.Linear(num_filters,1)
         )
     
     def forward(self, z: torch.Tensor) -> torch.Tensor:
