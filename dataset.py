@@ -1,7 +1,8 @@
+import os
 from PIL import Image
 import torch
 import torchvision.transforms as tvt 
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F 
 
 
@@ -15,7 +16,7 @@ LABEL_TO_TYPE = {v:k for (k,v) in TYPE_TO_LABEL.items()}
 
 NUM_TYPES = 18
 
-def pil_loader(path: str) -> PIL.Image:
+def pil_loader(path: str) -> Image:
     '''
     Load image using PIL.
 
@@ -35,7 +36,7 @@ def pil_loader(path: str) -> PIL.Image:
 
 def label_to_class_encoding(type_label: str) -> torch.Tensor:
     '''
-    Converts pokemon type given in training CSV to an encoded tensor of size (num_classes, ) to be used by the network. For example, a type_label of "Electric/Ghost" would have a class encoding of [0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0].
+    Converts pokemon type given in training CSV to an encoded tensor of size (num_classes, ) to be used by the network. For example, a type_label of "Electric/Ghost" would have a class encoding of [-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1].
 
     Parameters
     ----------
@@ -48,12 +49,12 @@ def label_to_class_encoding(type_label: str) -> torch.Tensor:
     '''
     types = type_label.split('/')
     labels = [TYPE_TO_LABEL[typ] for typ in types]
-    label_encoding = torch.zeros(NUM_TYPES, dtype=int)
+    label_encoding = -torch.ones(NUM_TYPES, dtype=torch.float32)
     label_encoding[labels] = 1
     return label_encoding
 
 
-class PokemonSpriteDataset(torch.utils.Dataset):
+class PokemonSpriteDataset(Dataset):
 
     def __init__(self, csv_file='sprites_metadata.csv', root_dir='data'):
         '''
@@ -71,16 +72,20 @@ class PokemonSpriteDataset(torch.utils.Dataset):
         with open(csv_file, 'r') as f:
             lines = f.readlines()
         self.sprite_paths = [os.path.join(root_dir, line.split(',')[2]) for line in lines]
-        self.sprite_types = [line.split(',')[3] for line in lines]
+        self.sprite_types = [line.strip().split(',')[3] for line in lines]
 
         # Data augmentation transformation
         self.transform = tvt.Compose([
+            tvt.Resize(96),
             tvt.ColorJitter(0.4, 0.4, 0.4, 0.3),
             tvt.RandomHorizontalFlip(p=0.5),
-            tvt.RandomAffine(30, translate=(0,0.1), scale=(0.9,1.1),fill=0)
+            tvt.RandomAffine(30, translate=(0,0.1), scale=(0.9,1.1),fill=0),
             tvt.ToTensor(),
             # tvt.Normalize((0.5, 0.5, 0.5,), (0.5, 0.5, 0.5,))
         ])
+    
+    def __len__(self):
+        return len(self.sprite_paths)
 
     def __getitem__(self, idx: int):
         '''
@@ -96,15 +101,16 @@ class PokemonSpriteDataset(torch.utils.Dataset):
         torch.Tensor: sprite in tensor of shape (C, H, W)
         torch.Tensor: one-hot encoded label
         '''
-        img = pil_loader(self.sprite_paths[i])
+        img = pil_loader(self.sprite_paths[idx])
         img = self.transform(img)
+        img = img * 2 - 1 # [0,1] -> [-1,1]
 
-        typ = self.sprite_types[i]
+        typ = self.sprite_types[idx]
         label = label_to_class_encoding(typ)
         
         return img, label 
 
-def setup_dataloader(batch_size, csv_file='sprites_metadata.csv', root_dir='data'):
+def setup_dataloader(batch_size, root_dir='data', csv_file='sprites_metadata.csv'):
     '''
     Set up dataloader for training the pokemon sprite generator.
 
@@ -122,11 +128,11 @@ def setup_dataloader(batch_size, csv_file='sprites_metadata.csv', root_dir='data
     torch.utils.DataLoader: training dataloader
     '''
     dataset = PokemonSpriteDataset(csv_file, root_dir)
-    dataloader = torch.utils.DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=4,
-            drop_last=False
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        drop_last=False
     )
     return dataloader

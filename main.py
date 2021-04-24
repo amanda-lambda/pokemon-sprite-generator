@@ -9,7 +9,7 @@ from dataset import setup_dataloader
 
 def train(root_dir: str, csv_file: str, 
           load_dir: str, save_dir: str, 
-          batch_size: int, lr: float, 
+          num_epochs: int, batch_size: int, lr: float, 
           use_gpu: bool):
     # Dataloader
     loader = setup_dataloader(batch_size, root_dir, csv_file)
@@ -33,15 +33,17 @@ def train(root_dir: str, csv_file: str,
                 x, y = x.cuda(), y.cuda()
             loss_dict = sprite_gan.forward(x, y)
             step += 1
+            print("Step % i" % step, loss_dict)
 
             # Log
             if i % 100 == 0:
-                for (k,v) in loss_dict:
+                for (k,v) in loss_dict.items():
                     writer.add_scalar(k, v.item(), step)
         
         # Save
         if epoch % 10 == 0:
             sprite_gan.save(save_dir, epoch)
+            print("Save new model at epoch %i." % epoch)
 
             # Log sample image
             with torch.no_grad():
@@ -52,7 +54,7 @@ def train(root_dir: str, csv_file: str,
 def test(root_dir, csv_file, load_dir):
     return
 
-if name == '__main__':
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="pokemon-sprite-generator options")
     parser.add_argument("--mode",
                         type=str,
@@ -96,6 +98,6 @@ if name == '__main__':
 
     options = parser.parse_args()
     if options.mode == 'train':
-        train(options.root_dir, options.csv_file, options.load_dir, options.save_dir, options.batch_size, options.lr, options.use_gpu)
+        train(options.root_dir, options.csv_file, options.load_dir, options.save_dir, options.num_epochs, options.batch_size, options.learning_rate, options.use_gpu)
     elif options.mode == 'sample':
         sample()
