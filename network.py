@@ -50,8 +50,8 @@ class SpriteGAN(nn.Module):
         self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr)
 
         # Losses 
-        self.real_label = torch.ones(batch_size)
-        self.fake_label = torch.zeros(batch_size)
+        self.real_label = torch.ones(batch_size).cuda()
+        self.fake_label = torch.zeros(batch_size).cuda()
     
     def forward(self, x: torch.Tensor, y: torch.Tensor):
 
@@ -64,18 +64,19 @@ class SpriteGAN(nn.Module):
         conf_latent = self.disc_latent(z)
 
         recon_loss = F.l1_loss(x_recon, x)
-        gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label)
-        gen_loss = recon_loss + 1e-4 * gan_loss
+        gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
+        gen_loss = recon_loss + 1e-2 * gan_loss
         gen_loss.backward()
         self.opt_generator.step()
 
         # Latent Discriminator loss
         self.disc_latent.zero_grad()
         z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        z_prior = z_prior.cuda()
         conf_z_prior = self.disc_latent(z_prior)
         conf_z = self.disc_latent(z.detach())
 
-        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label)
+        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
         disc_latent_loss.backward()
         self.opt_disc_latent.step()
 
@@ -108,6 +109,7 @@ class SpriteGAN(nn.Module):
             one-hot encoding of pokemon types
         '''
         z = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        z = z.cuda()
         x = self.decoder(z, y)
         return x 
 
@@ -365,11 +367,16 @@ class DiscriminatorImage(nn.Module):
         -------
         torch.Tensor: real/fake activations, a vector of shape (?,)
         '''
-        conv_img = self.conv_img(x)
+        rv = torch.randn(x.size()) * 0.02
+        conv_img = self.conv_img(x + rv.cuda())
         conv_l = self.conv_l(y.unsqueeze(-1).unsqueeze(-1))
         catted = torch.cat((conv_img,conv_l),dim=1)
-        total_conv = self.total_conv(catted).view(-1,8*6*6*self.num_filters)
-        out = self.fc(total_conv)
+        for layer in self.total_conv:
+            catted = layer(catted)
+            rv = torch.randn(catted.size()) * 0.02 + 1
+            catted *= rv.cuda()
+        catted = catted.view(-1,8*6*6*self.num_filters)
+        out = self.fc(catted)
         return out.squeeze()
 
 
@@ -411,4 +418,8 @@ class DiscriminatorLatent(nn.Module):
         -------
         torch.Tensor: real/fake activations, a vector of shape (?,)
         '''
-        return self.layers(z).squeeze()
+        for layer in self.layers:
+            z = layer(z)
+            rv = torch.randn(z.size()) * 0.02 + 1
+            z = z * rv.cuda()
+        return z.squeeze()

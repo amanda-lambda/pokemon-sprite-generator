@@ -133,6 +133,6 @@ def setup_dataloader(batch_size, root_dir='data', csv_file='sprites_metadata.csv
         batch_size=batch_size,
         shuffle=True,
         num_workers=4,
-        drop_last=False
+        drop_last=True
     )
     return dataloader

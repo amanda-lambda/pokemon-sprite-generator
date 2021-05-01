@@ -4,6 +4,7 @@ import argparse
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as tvt 
+from torchvision.utils import make_grid
 from dataset import setup_dataloader
 
 
@@ -48,8 +49,8 @@ def train(root_dir: str, csv_file: str,
             # Log sample image
             with torch.no_grad():
                 x = sprite_gan.sample(y)
-                val_image = make_grid(x, nrow=1)
-                self.writer.add_image('image', val_image, epoch)
+                val_image = make_grid(x[:4], nrow=1)
+                writer.add_image('image', val_image, epoch)
 
 def test(root_dir, csv_file, load_dir):
     return
@@ -83,7 +84,7 @@ if __name__ == '__main__':
     parser.add_argument("--batch_size",
                         type=int,
                         help="batch size",
-                        default=16)
+                        default=32)
     parser.add_argument("--learning_rate",
                         type=float,
                         help="learning rate",
@@ -91,7 +92,7 @@ if __name__ == '__main__':
     parser.add_argument("--num_epochs",
                         type=int,
                         help="number of epochs",
-                        default=100)
+                        default=50000)
     parser.add_argument("--use_gpu",
                         help="if set, train on gpu instead of cpu",
                         action="store_true")
