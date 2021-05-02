@@ -1,5 +1,4 @@
 import os
-import cv2
 import numpy as np
 from PIL import Image
 import torch
@@ -48,12 +47,9 @@ def pil_loader(path: str) -> Image:
     Returns
     -------
     PIL Image: RGB loaded PIL image
-    '''
-    im = cv2.imread(path)
-    im = Image.fromarray(im) 
-    
-    # with Image.open(path) as im:
-        # im = im.convert('RGB')
+    ''' 
+    with Image.open(path) as im:
+        im = im.convert('RGB')
     return im
 
 

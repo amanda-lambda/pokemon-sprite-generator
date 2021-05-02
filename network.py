@@ -262,22 +262,7 @@ class Decoder(nn.Module):
             nn.BatchNorm1d(16*num_filters),
             nn.ReLU()
         )
-        # self.upconv= nn.Sequential( # 6 12 24 48 96
-        #     nn.ConvTranspose2d(16*num_filters,8*num_filters,4,2,1),
-        #     nn.BatchNorm2d(8*num_filters),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(8*num_filters,4*num_filters,4,2,1),
-        #     nn.BatchNorm2d(4*num_filters),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(4*num_filters,2*num_filters,4,2,1),
-        #     nn.BatchNorm2d(2*num_filters),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(2*num_filters,num_filters,4,2,1),
-        #     nn.BatchNorm2d(num_filters),
-        #     nn.ReLU(),
-        #     nn.ConvTranspose2d(num_filters,3,3,1,1), # TODO color_dim
-        #     nn.Tanh()# nn.Softmax(),
-        # )
+        
         self.upconv= nn.Sequential( # 6 12 24 48 96
             nn.Conv2d(16*num_filters,8*num_filters,3,1,1),
             nn.BatchNorm2d(8*num_filters),
@@ -299,8 +284,8 @@ class Decoder(nn.Module):
             nn.BatchNorm2d(num_filters),
             nn.LeakyReLU(),
             nn.Upsample(scale_factor=2),
-            nn.Conv2d(num_filters,3,3,1,1), # TODO color_dim
-            nn.Tanh()# nn.Softmax(),
+            nn.Conv2d(num_filters,color_dim,3,1,1), 
+            nn.Softmax(),
         )
 
         self.color_picker_r = color_picker(16*num_filters, color_dim)
@@ -330,29 +315,29 @@ class Decoder(nn.Module):
         x_square = x.view(-1,16*self.num_filters,1,1)
         x_square = F.upsample(x_square, scale_factor=3)
         intermediate = self.upconv(x_square)
-        return intermediate
+        # return intermediate
 
         # Pick from color palette
-        # r = self.color_picker_r(x)
-        # r = r.view((-1, 16, 1, 1))
-        # r = F.upsample(r, scale_factosr=96)
-        # r = intermediate * r
-        # r = torch.sum(r, dim=1, keepdim=True) 
+        r = self.color_picker_r(x)
+        r = r.view((-1, 16, 1, 1))
+        r = F.upsample(r, scale_factor=96)
+        r = intermediate * r
+        r = torch.sum(r, dim=1, keepdim=True) 
 
-        # g = self.color_picker_g(x)
-        # g = g.view((-1, self.color_dim, 1, 1))
-        # g = F.upsample(g, scale_factor=96)
-        # g = intermediate * g
-        # g = torch.sum(g, dim=1, keepdim=True) 
+        g = self.color_picker_g(x)
+        g = g.view((-1, self.color_dim, 1, 1))
+        g = F.upsample(g, scale_factor=96)
+        g = intermediate * g
+        g = torch.sum(g, dim=1, keepdim=True) 
 
-        # b = self.color_picker_b(x)
-        # b = b.view((-1, self.color_dim, 1, 1))
-        # b = F.upsample(b, scale_factor=96)
-        # b = intermediate * b
-        # b = torch.sum(b, dim=1, keepdim=True) 
+        b = self.color_picker_b(x)
+        b = b.view((-1, self.color_dim, 1, 1))
+        b = F.upsample(b, scale_factor=96)
+        b = intermediate * b
+        b = torch.sum(b, dim=1, keepdim=True) 
 
-        # out = torch.cat((r, g, b), dim=1)
-        # return out
+        out = torch.cat((r, g, b), dim=1)
+        return out
 
 
 class DiscriminatorImage(nn.Module):
