@@ -14,6 +14,8 @@ cd pokemon-sprite-generator/
 git clone https://github.com/PokeAPI/sprites.git
 mv sprites/sprites/pokemon/*.png data/
 rm -rf sprites
+mogrify -background white -flatten data/*.png
+<!-- mogrify -set colorspace RGB data/*.png -->
 ```
 
 The associated type metadata is already provided at `sprites_metadata.csv`.
@@ -67,8 +69,11 @@ optional arguments:
 ```
 torch 
 torchvision
-
+PIL
+tensorboard
 ```
+
 # References
 
-- https://github.com/ConorLazarou/PokeGAN
+- AEGAN (Lazarou20): [paper](https://arxiv.org/abs/2004.05472), [code](https://github.com/ConorLazarou/PokeGAN)
+- CAAE (Zhang17): [paper](http://web.eecs.utk.edu/~zzhang61/docs/papers/2017_CVPR_Age.pdf), [code](https://github.com/mattans/AgeProgression/tree/v1.0.0)

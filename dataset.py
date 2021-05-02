@@ -1,4 +1,6 @@
 import os
+import cv2
+import numpy as np
 from PIL import Image
 import torch
 import torchvision.transforms as tvt 
@@ -8,17 +10,35 @@ import torch.nn.functional as F
 
 # Mapping Pokemon type names to class labels 
 TYPE_TO_LABEL = {
-    'Normal': 0, 'Fire': 1, 'Water': 2, 'Grass': 3, 'Flying': 4, 'Fighting': 5, 'Poison': 6, 'Electric': 7, 'Ground': 8, 'Rock': 9, 'Psychic': 10, 'Ice': 11, 'Bug': 12, 'Ghost': 13, 'Steel': 14, 'Dragon': 15, 'Dark': 16, 'Fairy': 17
+    'Normal': 0, 
+    'Fire': 1, 
+    'Water': 2, 
+    'Grass': 3, 
+    'Flying': 4, 
+    'Fighting': 5, 
+    'Poison': 6, 
+    'Electric': 7, 
+    'Ground': 8, 
+    'Rock': 9, 
+    'Psychic': 10, 
+    'Ice': 11, 
+    'Bug': 12, 
+    'Ghost': 13, 
+    'Steel': 14, 
+    'Dragon': 15, 
+    'Dark': 16, 
+    'Fairy': 17
 }
 
 # Mapping Pokemon class labels to type names
 LABEL_TO_TYPE = {v:k for (k,v) in TYPE_TO_LABEL.items()}
 
-NUM_TYPES = 18
+NUM_TYPES = len(TYPE_TO_LABEL.keys())
 
 def pil_loader(path: str) -> Image:
     '''
-    Load image using PIL.
+    Load image using PIL. 
+    Transparent portions should be white.
 
     Parameters
     ----------
@@ -29,12 +49,15 @@ def pil_loader(path: str) -> Image:
     -------
     PIL Image: RGB loaded PIL image
     '''
-    with Image.open(path) as im:
-        im = im.convert('RGB')
-        return im 
+    im = cv2.imread(path)
+    im = Image.fromarray(im) 
+    
+    # with Image.open(path) as im:
+        # im = im.convert('RGB')
+    return im
 
 
-def label_to_class_encoding(type_label: str) -> torch.Tensor:
+def type_to_class_encoding(type_label: str) -> torch.Tensor:
     '''
     Converts pokemon type given in training CSV to an encoded tensor of size (num_classes, ) to be used by the network. For example, a type_label of "Electric/Ghost" would have a class encoding of [-1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1,-1,1,-1,-1,-1,-1].
 
@@ -72,16 +95,16 @@ class PokemonSpriteDataset(Dataset):
         with open(csv_file, 'r') as f:
             lines = f.readlines()
         self.sprite_paths = [os.path.join(root_dir, line.split(',')[2]) for line in lines]
-        self.sprite_types = [line.strip().split(',')[3] for line in lines]
+        self.sprite_labels = [line.strip().split(',')[3] for line in lines]
 
         # Data augmentation transformation
         self.transform = tvt.Compose([
-            tvt.Resize(96),
-            tvt.ColorJitter(0.4, 0.4, 0.4, 0.3),
+            tvt.Resize(96, tvt.InterpolationMode.NEAREST),
+            # tvt.ColorJitter(0.4, 0.4, 0.4, 0.3),
             tvt.RandomHorizontalFlip(p=0.5),
-            tvt.RandomAffine(30, translate=(0,0.1), scale=(0.9,1.1),fill=0),
+            tvt.RandomAffine(30, translate=(0,0.1), scale=(0.9,1.1),fill=255),
             tvt.ToTensor(),
-            # tvt.Normalize((0.5, 0.5, 0.5,), (0.5, 0.5, 0.5,))
+            tvt.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
     
     def __len__(self):
@@ -103,10 +126,12 @@ class PokemonSpriteDataset(Dataset):
         '''
         img = pil_loader(self.sprite_paths[idx])
         img = self.transform(img)
-        img = img * 2 - 1 # [0,1] -> [-1,1]
+        typ = self.sprite_labels[idx]
+        label = type_to_class_encoding(typ)
 
-        typ = self.sprite_types[idx]
-        label = label_to_class_encoding(typ)
+        # img2 = 127.5*( 1+ np.array(img))
+        # img2 = np.swapaxes(img2, 0, -1)
+        # cv2.imwrite('test_poop.png', img2)
         
         return img, label 
 
@@ -132,7 +157,7 @@ def setup_dataloader(batch_size, root_dir='data', csv_file='sprites_metadata.csv
         dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=8,
         drop_last=True
     )
     return dataloader

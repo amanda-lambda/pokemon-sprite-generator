@@ -16,7 +16,7 @@ from dataset import NUM_TYPES
 
 class SpriteGAN(nn.Module):
 
-    def __init__(self, lr: float, batch_size: int, ngf: int = 32, ndf: int = 32, latent_dim: int = 10):
+    def __init__(self, lr: float, batch_size: int, ngf: int = 32, ndf: int = 32, latent_dim: int = 16):
         '''
         Pokemon sprite generator. 
         A combination of a conditional variational autoencoder (for stability and attribute control) and a GAN (for generation power).
@@ -56,46 +56,46 @@ class SpriteGAN(nn.Module):
     def forward(self, x: torch.Tensor, y: torch.Tensor):
 
         # Generator loss
-        self.encoder.zero_grad()
-        self.decoder.zero_grad()
         z = self.encoder(x)
         x_recon = self.decoder(z, y)
-        conf_image = self.disc_image(x_recon, y)
-        conf_latent = self.disc_latent(z)
+        # conf_image = self.disc_image(x_recon, y)
+        # conf_latent = self.disc_latent(z)
 
         recon_loss = F.l1_loss(x_recon, x)
-        gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
-        gen_loss = recon_loss + 1e-2 * gan_loss
-        gen_loss.backward()
+        # gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
+        # gen_loss = recon_loss + 1e-2 * gan_loss
+        # gen_loss.backward()
+        self.opt_generator.zero_grad()
+        recon_loss.backward() # REMOVE
         self.opt_generator.step()
 
-        # Latent Discriminator loss
-        self.disc_latent.zero_grad()
-        z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
-        z_prior = z_prior.cuda()
-        conf_z_prior = self.disc_latent(z_prior)
-        conf_z = self.disc_latent(z.detach())
+        # # Latent Discriminator loss
+        # z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        # z_prior = z_prior.cuda()
+        # conf_z_prior = self.disc_latent(z_prior)
+        # conf_z = self.disc_latent(z.detach())
 
-        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
-        disc_latent_loss.backward()
-        self.opt_disc_latent.step()
+        # disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
+        # self.opt_disc_latent.zero_grad()
+        # disc_latent_loss.backward()
+        # self.opt_disc_latent.step()
 
-        # Image Discriminator loss
-        self.disc_image.zero_grad()
-        conf_x = self.disc_image(x, y)
-        conf_x_recon = self.disc_image(x_recon.detach(), y)
+        # # Image Discriminator loss
+        # conf_x = self.disc_image(x, y)
+        # conf_x_recon = self.disc_image(x_recon.detach(), y)
 
-        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
-        disc_image_loss.backward()
-        self.opt_disc_image.step()
+        # disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
+        # self.opt_disc_image.zero_grad()
+        # disc_image_loss.backward()
+        # self.opt_disc_image.step()
 
         # Return losses
         loss_dict = {
             'generator/reconstruction_loss': recon_loss,
-            'generator/gan_loss': gan_loss,
-            'generator/total_loss': gen_loss,
-            'discriminator/latent_loss': disc_latent_loss,
-            'discriminator/image_loss': disc_image_loss
+            # 'generator/gan_loss': gan_loss,
+            # 'generator/total_loss': gen_loss,
+            # 'discriminator/latent_loss': disc_latent_loss,
+            # 'discriminator/image_loss': disc_image_loss
         }
         return loss_dict
     
@@ -108,10 +108,17 @@ class SpriteGAN(nn.Module):
         y: torch.Tensor
             one-hot encoding of pokemon types
         '''
-        z = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        bs = y.shape[0]
+        z = 2 * torch.rand(bs, self.latent_dim) - 1
         z = z.cuda()
         x = self.decoder(z, y)
         return x 
+    
+
+    def reconstruct(self, x: torch.Tensor, y: torch.Tensor):
+        z = self.encoder(x)
+        x_recon = self.decoder(z, y)
+        return x_recon
 
     
     def save(self, save_dir: str, epoch: int) -> None:
@@ -181,17 +188,17 @@ class Encoder(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Conv2d(3,num_filters,5,2,2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(num_filters,2*num_filters,5,2,2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(2*num_filters,4*num_filters,5,2,2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(4*num_filters,8*num_filters,5,2,2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
         )
         self.fc = nn.Sequential(
             nn.Linear(9216,latent_dim), # Hard-cided
-            nn.Tanh(),
+            # nn.Tanh(),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -230,6 +237,7 @@ class Decoder(nn.Module):
         '''
         super(Decoder,self).__init__()
         self.num_filters = num_filters
+        self.color_dim = color_dim 
 
         def color_picker(input_dim: int, output_dim: int):
             '''
@@ -249,25 +257,25 @@ class Decoder(nn.Module):
             return colorspace
 
         self.fc = nn.Sequential(
-            nn.Linear(latent_dim+NUM_TYPES, 6*6*num_filters*16),
-            nn.ReLU()
+            nn.Linear(latent_dim+NUM_TYPES, 16*num_filters),
+            nn.LeakyReLU()
         )
         self.upconv= nn.Sequential(
             nn.ConvTranspose2d(16*num_filters,8*num_filters,4,2,1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(8*num_filters,4*num_filters,4,2,1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(4*num_filters,2*num_filters,4,2,1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(2*num_filters,num_filters,4,2,1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(num_filters,1,3,1,1),
-            nn.Softmax(),
+            nn.LeakyReLU(),
+            nn.ConvTranspose2d(num_filters,3,3,1,1), # TODO
+            nn.Tanh() # nn.Softmax(),TODO
         )
 
-        self.color_picker_r = color_picker(6*6*num_filters*16, 16)
-        self.color_picker_g = color_picker(6*6*num_filters*16, 16)
-        self.color_picker_b = color_picker(6*6*num_filters*16, 16)
+        self.color_picker_r = color_picker(16*num_filters, color_dim)
+        self.color_picker_g = color_picker(16*num_filters, color_dim)
+        self.color_picker_b = color_picker(16*num_filters, color_dim)
         self.colourspace_upscaler = nn.Upsample(scale_factor=96)
         
 
@@ -289,31 +297,31 @@ class Decoder(nn.Module):
         # Generate 16-channel intermediate image from latent vector
         x = torch.cat([z, y],dim=1)
         x = self.fc(x)
-        x_square = x.view(-1,16*self.num_filters,6,6)
+        x_square = x.view(-1,16*self.num_filters,1,1)
+        x_square = F.upsample(x_square, scale_factor=6)
         intermediate = self.upconv(x_square)
-
+        return intermediate
         # Pick from color palette
-        r = self.color_picker_r(x)
-        r = r.view((-1, 16, 1, 1))
-        r = F.upsample(r, scale_factor=96)
-        r = intermediate * r
-        r = torch.sum(r, dim=1, keepdim=True) 
+        # r = self.color_picker_r(x)
+        # r = r.view((-1, 16, 1, 1))
+        # r = F.upsample(r, scale_factor=96)
+        # r = intermediate * r
+        # r = torch.sum(r, dim=1, keepdim=True) 
 
-        g = self.color_picker_g(x)
-        g = g.view((-1, 16, 1, 1))
-        g = F.upsample(g, scale_factor=96)
-        g = intermediate * g
-        g = torch.sum(g, dim=1, keepdim=True) 
+        # g = self.color_picker_g(x)
+        # g = g.view((-1, self.color_dim, 1, 1))
+        # g = F.upsample(g, scale_factor=96)
+        # g = intermediate * g
+        # g = torch.sum(g, dim=1, keepdim=True) 
 
-        b = self.color_picker_b(x)
-        b = b.view((-1, 16, 1, 1))
-        b = F.upsample(b, scale_factor=96)
-        b = intermediate * b
-        b = torch.sum(b, dim=1, keepdim=True) 
+        # b = self.color_picker_b(x)
+        # b = b.view((-1, self.color_dim, 1, 1))
+        # b = F.upsample(b, scale_factor=96)
+        # b = intermediate * b
+        # b = torch.sum(b, dim=1, keepdim=True) 
 
-        out = torch.cat((r, g, b), dim=1)
-        out = torch.tanh(out)
-        return out
+        # out = torch.cat((r, g, b), dim=1)
+        # return out
 
 
 class DiscriminatorImage(nn.Module):
@@ -335,20 +343,20 @@ class DiscriminatorImage(nn.Module):
         )
         self.conv_l = nn.Sequential(
             nn.ConvTranspose2d(NUM_TYPES, NUM_TYPES, 48, 1, 0),
-            nn.ReLU()
+            nn.LeakyReLU()
         )
         self.total_conv = nn.Sequential(
             nn.Conv2d(num_filters+NUM_TYPES,num_filters*2,4,2,1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(num_filters*2,num_filters*4,4,2,1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(num_filters*4,num_filters*8,4,2,1),
-            nn.ReLU()
+            nn.LeakyReLU()
         )
 
         self.fc = nn.Sequential(
             nn.Linear(8*6*6*num_filters,1024),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(1024,1)
         )
 
@@ -367,14 +375,11 @@ class DiscriminatorImage(nn.Module):
         -------
         torch.Tensor: real/fake activations, a vector of shape (?,)
         '''
-        rv = torch.randn(x.size()) * 0.02
-        conv_img = self.conv_img(x + rv.cuda())
+        conv_img = self.conv_img(x)
         conv_l = self.conv_l(y.unsqueeze(-1).unsqueeze(-1))
         catted = torch.cat((conv_img,conv_l),dim=1)
         for layer in self.total_conv:
             catted = layer(catted)
-            rv = torch.randn(catted.size()) * 0.02 + 1
-            catted *= rv.cuda()
         catted = catted.view(-1,8*6*6*self.num_filters)
         out = self.fc(catted)
         return out.squeeze()
@@ -397,11 +402,11 @@ class DiscriminatorLatent(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Linear(latent_dim,num_filters*4),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(num_filters*4,num_filters*2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(num_filters*2,num_filters),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(num_filters,1)
         )
     
@@ -418,8 +423,4 @@ class DiscriminatorLatent(nn.Module):
         -------
         torch.Tensor: real/fake activations, a vector of shape (?,)
         '''
-        for layer in self.layers:
-            z = layer(z)
-            rv = torch.randn(z.size()) * 0.02 + 1
-            z = z * rv.cuda()
-        return z.squeeze()
+        return self.layers(z).squeeze()

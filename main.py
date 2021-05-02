@@ -42,15 +42,23 @@ def train(root_dir: str, csv_file: str,
                     writer.add_scalar(k, v.item(), step)
         
         # Save
-        if epoch % 10 == 0:
+        if epoch % 20 == 0:
             sprite_gan.save(save_dir, epoch)
             print("Save new model at epoch %i." % epoch)
 
             # Log sample image
             with torch.no_grad():
-                x = sprite_gan.sample(y)
-                val_image = make_grid(x[:4], nrow=1)
-                writer.add_image('image', val_image, epoch)
+                n_sample = 3
+                x_gen = sprite_gan.sample(y[:n_sample])
+                gen_image = make_grid(x_gen, nrow=n_sample)
+                writer.add_image('image/gen', gen_image, epoch)
+
+                x_recon = sprite_gan.reconstruct(x[:n_sample], y[:n_sample])
+                recon_image = make_grid(x_recon, nrow=n_sample)
+                writer.add_image('image/recon', recon_image, epoch)
+
+                orig_image = make_grid(x[:n_sample], nrow=n_sample, range=[-1,1])
+                writer.add_image('image/orig', orig_image, epoch)
 
 def test(root_dir, csv_file, load_dir):
     return
