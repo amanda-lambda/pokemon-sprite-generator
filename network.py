@@ -188,18 +188,19 @@ class Encoder(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Conv2d(3,num_filters,5,2,2),
+            nn.Dropout(p=0.3),
             nn.LeakyReLU(),
             nn.Conv2d(num_filters,2*num_filters,5,2,2),
+            nn.Dropout(p=0.3),
             nn.LeakyReLU(),
             nn.Conv2d(2*num_filters,4*num_filters,5,2,2),
+            nn.Dropout(p=0.3),
             nn.LeakyReLU(),
             nn.Conv2d(4*num_filters,8*num_filters,5,2,2),
+            nn.Dropout(p=0.3),
             nn.LeakyReLU(),
         )
-        self.fc = nn.Sequential(
-            nn.Linear(9216,latent_dim), # Hard-cided
-            # nn.Tanh(),
-        )
+        self.fc = nn.Linear(9216,latent_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         '''
@@ -224,7 +225,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, num_filters: int = 32, latent_dim: int = 10, color_dim: int = 16):
+    def __init__(self, num_filters: int = 32, latent_dim: int = 16, color_dim: int = 16):
         '''
         The decoder maps from the latent space to the image space.
 
@@ -258,19 +259,48 @@ class Decoder(nn.Module):
 
         self.fc = nn.Sequential(
             nn.Linear(latent_dim+NUM_TYPES, 16*num_filters),
-            nn.LeakyReLU()
+            nn.BatchNorm1d(16*num_filters),
+            nn.ReLU()
         )
-        self.upconv= nn.Sequential(
-            nn.ConvTranspose2d(16*num_filters,8*num_filters,4,2,1),
+        # self.upconv= nn.Sequential( # 6 12 24 48 96
+        #     nn.ConvTranspose2d(16*num_filters,8*num_filters,4,2,1),
+        #     nn.BatchNorm2d(8*num_filters),
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(8*num_filters,4*num_filters,4,2,1),
+        #     nn.BatchNorm2d(4*num_filters),
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(4*num_filters,2*num_filters,4,2,1),
+        #     nn.BatchNorm2d(2*num_filters),
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(2*num_filters,num_filters,4,2,1),
+        #     nn.BatchNorm2d(num_filters),
+        #     nn.ReLU(),
+        #     nn.ConvTranspose2d(num_filters,3,3,1,1), # TODO color_dim
+        #     nn.Tanh()# nn.Softmax(),
+        # )
+        self.upconv= nn.Sequential( # 6 12 24 48 96
+            nn.Conv2d(16*num_filters,8*num_filters,3,1,1),
+            nn.BatchNorm2d(8*num_filters),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(8*num_filters,4*num_filters,4,2,1),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(8*num_filters,4*num_filters,3,1,1),
+            nn.BatchNorm2d(4*num_filters),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(4*num_filters,2*num_filters,4,2,1),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(4*num_filters,2*num_filters,3,1,1),
+            nn.BatchNorm2d(2*num_filters),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(2*num_filters,num_filters,4,2,1),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(2*num_filters,num_filters,3,1,1),
+            nn.BatchNorm2d(num_filters),
             nn.LeakyReLU(),
-            nn.ConvTranspose2d(num_filters,3,3,1,1), # TODO
-            nn.Tanh() # nn.Softmax(),TODO
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(num_filters,num_filters,3,1,1),
+            nn.BatchNorm2d(num_filters),
+            nn.LeakyReLU(),
+            nn.Upsample(scale_factor=2),
+            nn.Conv2d(num_filters,3,3,1,1), # TODO color_dim
+            nn.Tanh()# nn.Softmax(),
         )
 
         self.color_picker_r = color_picker(16*num_filters, color_dim)
@@ -298,13 +328,14 @@ class Decoder(nn.Module):
         x = torch.cat([z, y],dim=1)
         x = self.fc(x)
         x_square = x.view(-1,16*self.num_filters,1,1)
-        x_square = F.upsample(x_square, scale_factor=6)
+        x_square = F.upsample(x_square, scale_factor=3)
         intermediate = self.upconv(x_square)
         return intermediate
+
         # Pick from color palette
         # r = self.color_picker_r(x)
         # r = r.view((-1, 16, 1, 1))
-        # r = F.upsample(r, scale_factor=96)
+        # r = F.upsample(r, scale_factosr=96)
         # r = intermediate * r
         # r = torch.sum(r, dim=1, keepdim=True) 
 
