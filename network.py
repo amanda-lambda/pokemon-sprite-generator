@@ -58,44 +58,43 @@ class SpriteGAN(nn.Module):
         # Generator loss
         z = self.encoder(x)
         x_recon = self.decoder(z, y)
-        # conf_image = self.disc_image(x_recon, y)
-        # conf_latent = self.disc_latent(z)
+        conf_image = self.disc_image(x_recon, y)
+        conf_latent = self.disc_latent(z)
 
         recon_loss = F.l1_loss(x_recon, x)
-        # gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
-        # gen_loss = recon_loss + 1e-2 * gan_loss
-        # gen_loss.backward()
+        gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
+        gen_loss = recon_loss + 0.1 * gan_loss
         self.opt_generator.zero_grad()
-        recon_loss.backward() # REMOVE
+        gen_loss.backward()
         self.opt_generator.step()
 
-        # # Latent Discriminator loss
-        # z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
-        # z_prior = z_prior.cuda()
-        # conf_z_prior = self.disc_latent(z_prior)
-        # conf_z = self.disc_latent(z.detach())
+        # Latent Discriminator loss
+        z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
+        z_prior = z_prior.cuda()
+        conf_z_prior = self.disc_latent(z_prior)
+        conf_z = self.disc_latent(z.detach())
 
-        # disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
-        # self.opt_disc_latent.zero_grad()
-        # disc_latent_loss.backward()
-        # self.opt_disc_latent.step()
+        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
+        self.opt_disc_latent.zero_grad()
+        disc_latent_loss.backward()
+        self.opt_disc_latent.step()
 
-        # # Image Discriminator loss
-        # conf_x = self.disc_image(x, y)
-        # conf_x_recon = self.disc_image(x_recon.detach(), y)
+        # Image Discriminator loss
+        conf_x = self.disc_image(x, y)
+        conf_x_recon = self.disc_image(x_recon.detach(), y)
 
-        # disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
-        # self.opt_disc_image.zero_grad()
-        # disc_image_loss.backward()
-        # self.opt_disc_image.step()
+        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
+        self.opt_disc_image.zero_grad()
+        disc_image_loss.backward()
+        self.opt_disc_image.step()
 
         # Return losses
         loss_dict = {
             'generator/reconstruction_loss': recon_loss,
-            # 'generator/gan_loss': gan_loss,
-            # 'generator/total_loss': gen_loss,
-            # 'discriminator/latent_loss': disc_latent_loss,
-            # 'discriminator/image_loss': disc_image_loss
+            'generator/gan_loss': gan_loss,
+            'generator/total_loss': gen_loss,
+            'discriminator/latent_loss': disc_latent_loss,
+            'discriminator/image_loss': disc_image_loss
         }
         return loss_dict
     
@@ -262,7 +261,7 @@ class Decoder(nn.Module):
             nn.BatchNorm1d(16*num_filters),
             nn.ReLU()
         )
-        
+
         self.upconv= nn.Sequential( # 6 12 24 48 96
             nn.Conv2d(16*num_filters,8*num_filters,3,1,1),
             nn.BatchNorm2d(8*num_filters),
