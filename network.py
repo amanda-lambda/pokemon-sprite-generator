@@ -10,13 +10,14 @@ import torch
 from torch import nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+from torch.nn.utils import spectral_norm
 
 from dataset import NUM_TYPES
 
 
 class SpriteGAN(nn.Module):
 
-    def __init__(self, lr: float, batch_size: int, ngf: int = 32, ndf: int = 32, latent_dim: int = 16):
+    def __init__(self, lr: float, batch_size: int, ngf: int = 64, ndf: int = 64, latent_dim: int = 100):
         '''
         Pokemon sprite generator. 
         A combination of a conditional variational autoencoder (for stability and attribute control) and a GAN (for generation power).
@@ -44,10 +45,15 @@ class SpriteGAN(nn.Module):
         self.disc_image = DiscriminatorImage(ndf, latent_dim)
         self.disc_latent = DiscriminatorLatent(ndf, latent_dim)
 
+        self.encoder.apply(weights_init)
+        self.decoder.apply(weights_init)
+        self.disc_image.apply(weights_init)
+        self.disc_latent.apply(weights_init)
+
         # Optimizers
         self.opt_generator = torch.optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr)
-        self.opt_disc_image = torch.optim.Adam(self.disc_image.parameters(), lr)
-        self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr)
+        self.opt_disc_image = torch.optim.Adam(self.disc_image.parameters(), lr, betas=(0.5, 0.9))
+        self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr, betas=(0.5, 0.9))
 
         # Losses 
         self.real_label = torch.ones(batch_size).cuda()
@@ -55,7 +61,31 @@ class SpriteGAN(nn.Module):
     
     def forward(self, x: torch.Tensor, y: torch.Tensor):
 
+        # Latent Discriminator loss
+        self.opt_disc_latent.zero_grad()
+        z = self.encoder(x)
+        x_recon = self.decoder(z, y)
+
+        z_prior = torch.randn((self.batch_size, self.latent_dim), requires_grad=True)
+        z_prior = z_prior.cuda()
+        conf_z_prior = self.disc_latent(z_prior)
+        conf_z = self.disc_latent(z.detach())
+
+        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
+        disc_latent_loss.backward()
+        self.opt_disc_latent.step()
+
+        # Image Discriminator loss
+        self.opt_disc_image.zero_grad()
+        conf_x = self.disc_image(x, y)
+        conf_x_recon = self.disc_image(x_recon.detach(), y)
+
+        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
+        disc_image_loss.backward()
+        self.opt_disc_image.step()
+
         # Generator loss
+        self.opt_generator.zero_grad()
         z = self.encoder(x)
         x_recon = self.decoder(z, y)
         conf_image = self.disc_image(x_recon, y)
@@ -64,29 +94,8 @@ class SpriteGAN(nn.Module):
         recon_loss = F.l1_loss(x_recon, x)
         gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
         gen_loss = recon_loss + 0.1 * gan_loss
-        self.opt_generator.zero_grad()
         gen_loss.backward()
         self.opt_generator.step()
-
-        # Latent Discriminator loss
-        z_prior = 2 * torch.rand(self.batch_size, self.latent_dim) - 1
-        z_prior = z_prior.cuda()
-        conf_z_prior = self.disc_latent(z_prior)
-        conf_z = self.disc_latent(z.detach())
-
-        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
-        self.opt_disc_latent.zero_grad()
-        disc_latent_loss.backward()
-        self.opt_disc_latent.step()
-
-        # Image Discriminator loss
-        conf_x = self.disc_image(x, y)
-        conf_x_recon = self.disc_image(x_recon.detach(), y)
-
-        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
-        self.opt_disc_image.zero_grad()
-        disc_image_loss.backward()
-        self.opt_disc_image.step()
 
         # Return losses
         loss_dict = {
@@ -170,9 +179,18 @@ class SpriteGAN(nn.Module):
 
 
 
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+
 class Encoder(nn.Module):
 
-    def __init__(self, num_filters: int = 32, latent_dim: int = 10):
+    def __init__(self, num_filters: int = 64, latent_dim: int = 100):
         '''
         The encoder maps from the image space to the latent space.
 
@@ -187,19 +205,23 @@ class Encoder(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Conv2d(3,num_filters,5,2,2),
+            # nn.BatchNorm2d(num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(num_filters,2*num_filters,5,2,2),
+            # nn.BatchNorm2d(2*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(2*num_filters,4*num_filters,5,2,2),
+            # nn.BatchNorm2d(4*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(0.2, inplace=True),
             nn.Conv2d(4*num_filters,8*num_filters,5,2,2),
+            # nn.BatchNorm2d(8*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(0.2, inplace=True),
         )
-        self.fc = nn.Linear(9216,latent_dim)
+        self.fc = nn.Linear(18432,latent_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         '''
@@ -215,8 +237,9 @@ class Encoder(nn.Module):
         torch.Tensor: latent vector of shape (?, latent_dim)
         '''
         # TODO - incorporate class here as well?
+        batch_size = x.shape[0]
         conv = self.layers(x)
-        conv = conv.view(-1,9216)
+        conv = conv.view(batch_size,-1)
         out = self.fc(conv)
         return out
 
@@ -224,7 +247,7 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
 
-    def __init__(self, num_filters: int = 32, latent_dim: int = 16, color_dim: int = 16):
+    def __init__(self, num_filters: int = 64, latent_dim: int = 100, color_dim: int = 16):
         '''
         The decoder maps from the latent space to the image space.
 
@@ -247,10 +270,10 @@ class Decoder(nn.Module):
             colorspace = nn.Sequential(
                 nn.Linear(input_dim,128,bias=True),
                 nn.BatchNorm1d(128),
-                nn.LeakyReLU(),
+                nn.ReLU(True),
                 nn.Linear(128,64,bias=True),
                 nn.BatchNorm1d(64),
-                nn.LeakyReLU(),
+                nn.ReLU(True),
                 nn.Linear(64,output_dim,bias=True),
                 nn.Tanh(),
             )
@@ -259,29 +282,29 @@ class Decoder(nn.Module):
         self.fc = nn.Sequential(
             nn.Linear(latent_dim+NUM_TYPES, 16*num_filters),
             nn.BatchNorm1d(16*num_filters),
-            nn.ReLU()
+            nn.ReLU(True)
         )
 
         self.upconv= nn.Sequential( # 6 12 24 48 96
             nn.Conv2d(16*num_filters,8*num_filters,3,1,1),
             nn.BatchNorm2d(8*num_filters),
-            nn.LeakyReLU(),
+            nn.ReLU(True),
             nn.Upsample(scale_factor=2),
             nn.Conv2d(8*num_filters,4*num_filters,3,1,1),
             nn.BatchNorm2d(4*num_filters),
-            nn.LeakyReLU(),
+            nn.ReLU(True),
             nn.Upsample(scale_factor=2),
             nn.Conv2d(4*num_filters,2*num_filters,3,1,1),
             nn.BatchNorm2d(2*num_filters),
-            nn.LeakyReLU(),
+            nn.ReLU(True),
             nn.Upsample(scale_factor=2),
             nn.Conv2d(2*num_filters,num_filters,3,1,1),
             nn.BatchNorm2d(num_filters),
-            nn.LeakyReLU(),
+            nn.ReLU(True),
             nn.Upsample(scale_factor=2),
             nn.Conv2d(num_filters,num_filters,3,1,1),
             nn.BatchNorm2d(num_filters),
-            nn.LeakyReLU(),
+            nn.ReLU(True),
             nn.Upsample(scale_factor=2),
             nn.Conv2d(num_filters,color_dim,3,1,1), 
             nn.Softmax(),
@@ -314,7 +337,6 @@ class Decoder(nn.Module):
         x_square = x.view(-1,16*self.num_filters,1,1)
         x_square = F.upsample(x_square, scale_factor=3)
         intermediate = self.upconv(x_square)
-        # return intermediate
 
         # Pick from color palette
         r = self.color_picker_r(x)
@@ -341,7 +363,7 @@ class Decoder(nn.Module):
 
 class DiscriminatorImage(nn.Module):
 
-    def __init__(self, num_filters: int = 32, latent_dim: int = 10):
+    def __init__(self, num_filters: int = 64, latent_dim: int = 100):
         '''
         Discriminator for generated/real images.
 
@@ -354,25 +376,26 @@ class DiscriminatorImage(nn.Module):
         self.num_filters = num_filters
 
         self.conv_img = nn.Sequential(
-            nn.Conv2d(3,num_filters,4,2,1),
+            spectral_norm(nn.Conv2d(3,num_filters,4,2,1)),
+            nn.LeakyReLU(0.2, inplace=True)
         )
         self.conv_l = nn.Sequential(
             nn.ConvTranspose2d(NUM_TYPES, NUM_TYPES, 48, 1, 0),
-            nn.LeakyReLU()
+            nn.LeakyReLU(0.2, inplace=True)
         )
         self.total_conv = nn.Sequential(
-            nn.Conv2d(num_filters+NUM_TYPES,num_filters*2,4,2,1),
-            nn.LeakyReLU(),
-            nn.Conv2d(num_filters*2,num_filters*4,4,2,1),
-            nn.LeakyReLU(),
-            nn.Conv2d(num_filters*4,num_filters*8,4,2,1),
-            nn.LeakyReLU()
+            spectral_norm(nn.Conv2d(num_filters+NUM_TYPES,num_filters*2,4,2,1)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Conv2d(num_filters*2,num_filters*4,4,2,1)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Conv2d(num_filters*4,num_filters*8,4,2,1)),
+            nn.LeakyReLU(0.2, inplace=True)
         )
 
         self.fc = nn.Sequential(
-            nn.Linear(8*6*6*num_filters,1024),
-            nn.LeakyReLU(),
-            nn.Linear(1024,1)
+            spectral_norm(nn.Linear(8*6*6*num_filters,1024)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Linear(1024,1))
         )
 
     def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
@@ -402,7 +425,7 @@ class DiscriminatorImage(nn.Module):
 
 class DiscriminatorLatent(nn.Module):
 
-    def __init__(self, num_filters: int = 32, latent_dim: int = 10):
+    def __init__(self, num_filters: int = 64, latent_dim: int = 100):
         '''
         Discriminator for latent vectors.
 
@@ -416,13 +439,13 @@ class DiscriminatorLatent(nn.Module):
         super(DiscriminatorLatent,self).__init__()
 
         self.layers = nn.Sequential(
-            nn.Linear(latent_dim,num_filters*4),
-            nn.LeakyReLU(),
-            nn.Linear(num_filters*4,num_filters*2),
-            nn.LeakyReLU(),
-            nn.Linear(num_filters*2,num_filters),
-            nn.LeakyReLU(),
-            nn.Linear(num_filters,1)
+            spectral_norm(nn.Linear(latent_dim,num_filters*4)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Linear(num_filters*4,num_filters*2)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Linear(num_filters*2,num_filters)),
+            nn.LeakyReLU(0.2, inplace=True),
+            spectral_norm(nn.Linear(num_filters,1))
         )
     
     def forward(self, z: torch.Tensor) -> torch.Tensor:

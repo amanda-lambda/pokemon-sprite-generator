@@ -2,6 +2,8 @@
 
 Generate a pokemon sprite, given specified classes.
 
+A complementary repository to the [PokemonGenerator](https://github.com/SpenDM/PokemonGenerator), which creates pokedex text entries based on type.
+
 The network is a hybrid between VAE-GAN, AE-GAN, and a CVAE network in order to accomplish conditional image generation (see references below). One of the attractive things about AE-GAN is its training stability and robustness; I've had a lot of trouble in the past getting GANs to train stably, so this was a hugely appealing factor. Another aspect was the network's "ColorPicker", which acted as the final transposed convolutional layer in the network. It's output has a channel depth of 16 with a softmax activation applied to the channel dimension. This forced the generator to pick one of 16 indices for each pixel. Elsewhere in the network, the generator generated 16 colours (essentially a palette), and this palette was multiplied against the 16-depth index layer. This was done three times separately to create red, green, and blue channels for output, and allowed colours to be easily coordinated across the output image. I decided to incorporate the variational aspects of VAE-GAN and conditional aspects of CVAE so I could get more controllable image generation. i.e., instead of just being able to generate a Pokemon, I'd be able to generate a Pokemon based on what types I specified.
 
 [NOTE] Work in progress! Under construction...
@@ -15,7 +17,6 @@ git clone https://github.com/PokeAPI/sprites.git
 mv sprites/sprites/pokemon/*.png data/
 rm -rf sprites
 mogrify -background white -flatten data/*.png
-<!-- mogrify -set colorspace RGB data/*.png -->
 ```
 
 The associated type metadata is already provided at `sprites_metadata.csv`.
@@ -65,15 +66,33 @@ optional arguments:
   --use_gpu             if set, train on gpu instead of cpu
 ```
 
+# Results 
+
+
 # Requirements
 ```
 torch 
 torchvision
 PIL
 tensorboard
+numpy
 ```
+
+# Fun notes
+
+ConvTranspose2D --> Conv2D + Upsample
+BatchNormalization is important! 
+Base image size 
+Making it harder for the discriminator -
+label switching/label smoothing
+add gaussian noise 
+dropout to discriminator
 
 # References
 
+Some inspirations for this work!
+
+- AAE: [code](https://github.com/neale/Adversarial-Autoencoder)
 - AEGAN (Lazarou20): [paper](https://arxiv.org/abs/2004.05472), [code](https://github.com/ConorLazarou/PokeGAN)
 - CAAE (Zhang17): [paper](http://web.eecs.utk.edu/~zzhang61/docs/papers/2017_CVPR_Age.pdf), [code](https://github.com/mattans/AgeProgression/tree/v1.0.0)
+Soumith Ganhacks: 

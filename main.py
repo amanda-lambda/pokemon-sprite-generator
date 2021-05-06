@@ -60,11 +60,6 @@ def train(root_dir: str, csv_file: str,
                 orig_image = make_grid(x[:n_sample], nrow=n_sample, normalize=True, value_range=(-1,1))
                 writer.add_image('image/orig', orig_image, epoch)
 
-                # import cv2
-                # import numpy as np 
-                # img2 = 127.5*( 1+ np.array(x[0].cpu().numpy()))
-                # img2 = np.swapaxes(img2, 0, -1)
-                # cv2.imwrite('test_poop.png', img2)
 
 def test(root_dir, csv_file, load_dir):
     return
