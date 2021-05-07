@@ -1,13 +1,16 @@
-import os 
+import os
+import typing
+import uuid
 import argparse 
+from glob import glob
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as tvt 
-from torchvision.utils import make_grid
+from torchvision.utils import make_grid, save_image
 
-from dataset import setup_dataloader
-from network import SpriteGAN
+from dataset import setup_dataloader, type_to_class_encoding
+from network import SpriteGAN, Decoder
 
 
 
@@ -48,6 +51,8 @@ def train(root_dir: str, csv_file: str,
 
     # Network
     sprite_gan = SpriteGAN(lr, batch_size, use_gpu)
+    if load_dir:
+        sprite_gan.load(load_dir)
 
     # Train
     step = 0
@@ -84,29 +89,67 @@ def train(root_dir: str, csv_file: str,
                 writer.add_image('image/orig', orig_image, epoch)
 
 
-def sample(load_dir: str):
+def sample(types: str, load_dir: str, save_dir: str, use_gpu: bool) -> None:
+    '''
+    Sample the SpriteGAN.
+
+    Parameters
+    ----------
+    types: List
+        types, seperated by /, e.g. 'Poison/Steel'
+    load_dir: str
+        folder to load network weights from
+    save_dir: str
+        folder to save network weights to
+    use_gpu: bool
+        Set to true to run training on GPU, otherwise run on CPU
+    '''
     # Network
-    sprite_gan = SpriteGAN(lr, batch_size)
+    model = Decoder()
+    model = model.eval()
     if use_gpu:
-        sprite_gan = sprite_gan.cuda()
-    return
+        model = model.cuda()
+    if load_dir:
+        fs = glob(os.path.join(load_dir, '*_dec.pth'))
+        fs.sort(key=os.path.getmtime)
+        model.load_state_dict(torch.load(fs[-1]))
+
+    # Types list to one-hot encoded label vector
+    y = type_to_class_encoding(types)
+    y = y.unsqueeze(0)
+    
+    # Generate
+    z = torch.randn((1, model.latent_dim))
+    x = model.forward(z, y)
+
+    # Save
+    save_path = os.path.join(save_dir, str(uuid.uuid1()) + '.png')
+    save_image(x.squeeze(), save_path)
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="pokemon-sprite-generator options")
+
+    # MODE options
     parser.add_argument("--mode",
                         type=str,
                         help="run the network in train or sample mode",
                         default="train",
                         choices=["train", "sample"])
 
-    # DIRECTORY options
+    # ALL options (train or sample)
     parser.add_argument("--save_dir",
                         type=str,
                         help="path to save model, logs, generated images",
                         default="logs")
     parser.add_argument("--load_dir",
                         type=str,
-                        help="path to model to load")
+                        help="path to model to load",
+                        default="")
+    parser.add_argument("--use_gpu",
+                        help="if set, train on gpu instead of cpu",
+                        action="store_true")
 
     # TRAINING options
     parser.add_argument("--root_dir",
@@ -129,14 +172,16 @@ if __name__ == '__main__':
                         type=int,
                         help="number of epochs",
                         default=50000)
-    parser.add_argument("--use_gpu",
-                        help="if set, train on gpu instead of cpu",
-                        action="store_true")
     
     # TESTING options
+    parser.add_argument("--types",
+                        type=str,
+                        help="pokemon types, comma seperated")
 
+    
+    # Parse arguments! Run train or sample.
     options = parser.parse_args()
     if options.mode == 'train':
         train(options.root_dir, options.csv_file, options.load_dir, options.save_dir, options.num_epochs, options.batch_size, options.learning_rate, options.use_gpu)
     elif options.mode == 'sample':
-        sample()
+        sample(options.types, options.load_dir, options.save_dir, options.use_gpu)

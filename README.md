@@ -2,15 +2,21 @@
 
 Generate a pokemon sprite, given specified classes.
 
-A complementary repository to the [PokemonGenerator](https://github.com/SpenDM/PokemonGenerator), which creates pokedex text entries based on type.
+This makes it a little different than other similar pokemon sprite generators - you are able to have more control over the sprite generation by indicating multiple types, rather than just getting a random pokemon of any type.
 
-The network is a hybrid between VAE-GAN, AE-GAN, and a CVAE network in order to accomplish conditional image generation (see references below). One of the attractive things about AE-GAN is its training stability and robustness; I've had a lot of trouble in the past getting GANs to train stably, so this was a hugely appealing factor. Another aspect was the network's "ColorPicker", which acted as the final transposed convolutional layer in the network. It's output has a channel depth of 16 with a softmax activation applied to the channel dimension. This forced the generator to pick one of 16 indices for each pixel. Elsewhere in the network, the generator generated 16 colours (essentially a palette), and this palette was multiplied against the 16-depth index layer. This was done three times separately to create red, green, and blue channels for output, and allowed colours to be easily coordinated across the output image. I decided to incorporate the variational aspects of VAE-GAN and conditional aspects of CVAE so I could get more controllable image generation. i.e., instead of just being able to generate a Pokemon, I'd be able to generate a Pokemon based on what types I specified.
+A complementary repository to the [PokemonGenerator Project](https://github.com/SpenDM/PokemonGenerator), which creates pokedex text entries based on type.
 
-[NOTE] Work in progress! Under construction...
+For some more nitty gritty technical details: The network is a hybrid between an adversarial autoencoder (AAE), a conditional autoencoder (CAE), and an autoencoding generative adversarial network (AEGAN) - see references below for my sources of inspiration! One of the attractive things about AEGAN is its training stability and robustness; I've had a lot of trouble in the past getting GANs to train stably, so this was a hugely appealing factor. Another cool aspect of this network was the concept of a "ColorPicker" (essentially a sprite color pallette), which greatly helps with the overall perceptual quality of the generated sprite. I decided to incorporate the vconditional aspects of a CAE so I could get more controllable image generation. i.e., instead of just being able to generate a Pokemon, I'd be able to generate a Pokemon based on what types I specified.
 
-# Download the pokemon sprite data
+Below is a rough architecture flow diagram of what's happening during training. In this case `x` and `r` are images, `z` are latents, and `y` are one-hot encoded type vectors. We can compute reconstruction losses between `recon_loss(x, r')` and generator GAN losses from  `disc_image(r)`, `disc_image(r')`, `disc_latent(z')`, and `disc_latent(z'')`. Conversely, we can compute discriminator losses from `disc_image(x, r, r')` and `disc_latent(z, z',z'')`. 
 
-Download the data:
+![architecture](doc/arch.png)
+
+[NOTE] Results coming soon!
+
+# Setup 
+
+1. Download the data:
 ```
 cd pokemon-sprite-generator/
 git clone https://github.com/PokeAPI/sprites.git
@@ -21,31 +27,37 @@ mogrify -background white -flatten data/*.png
 
 The associated type metadata is already provided at `sprites_metadata.csv`.
 
-# Generate a pokemon
-
-1. Download the pretrained model:
+2. Install necessary python packages. If doing training, I'd highly reccomend using a GPU. These are the package versions I was using, but I'm sure it would work for other combinations as well.
 ```
+python==3.6.12
+torch==1.8.1+cu111
+torchvision==0.9.1+cu111
+PIL==8.0.1
+tensorboard==2.5.0
+numpy==1.19.4
+```
+
+3. (Optional) Download the pretrained model:
+```
+cd pokemon-sprite-generator/
+mkdir pretrained
+cd pretrained/
 # TBD
-wget <url>
-```
-Available types: 
-```
-python main.py --mode test 
+wget <URL>
 ```
 
-# Train 
+# Quick Start
+
+The program is run via the command line. There are two modes, `train` or `sample`, which we'll outline in more detail below. For now, here is the full list of command line options:
 
 ```
-python main.py --mode train
-
-# For full list of command line options:
-python main.py -h 
+python main.py -h
 
 usage: main.py [-h] [--mode {train,sample}] [--save_dir SAVE_DIR]
-               [--load_dir LOAD_DIR] [--root_dir ROOT_DIR]
+               [--load_dir LOAD_DIR] [--use_gpu] [--root_dir ROOT_DIR]
                [--csv_file CSV_FILE] [--batch_size BATCH_SIZE]
                [--learning_rate LEARNING_RATE] [--num_epochs NUM_EPOCHS]
-               [--use_gpu]
+               [--types TYPES]
 
 pokemon-sprite-generator options
 
@@ -53,8 +65,9 @@ optional arguments:
   -h, --help            show this help message and exit
   --mode {train,sample}
                         run the network in train or sample mode
-  --save_dir SAVE_DIR   path to save model and logs
-  --load_dir LOAD_DIR   name of model to load
+  --save_dir SAVE_DIR   path to save model, logs, generated images
+  --load_dir LOAD_DIR   path to model to load
+  --use_gpu             if set, train on gpu instead of cpu
   --root_dir ROOT_DIR   path to the training data
   --csv_file CSV_FILE   path to the training data
   --batch_size BATCH_SIZE
@@ -63,42 +76,54 @@ optional arguments:
                         learning rate
   --num_epochs NUM_EPOCHS
                         number of epochs
-  --use_gpu             if set, train on gpu instead of cpu
+  --types TYPES         pokemon types, comma seperated
+``` 
+
+## Train 
+
+To train the network from scratch, I'd highly recommend using a CUDA-enabled GPU. It took me about ____ TBD. I'd also recommend keeping the default network hyperparameters. So, your command to train might look like:
+
 ```
+python main.py --mode train --save_dir logs 
+```
+
+## Sample
+
+If you'd like to sample a pokemon using the pre-trained model, make sure to first download the pre-trained model weights from step 3 of the `Setup` section. To generate a pokemon, your command might look like:
+
+```
+python main.py --mode sample --save_dir logs --load_dir pretrained --types Fire
+```
+
+You can choose from the following types: `Normal`, `Fire`, `Water`, `Grass`, `Flying`, `Fighting`, `Poison`, `Electric`, `Ground`, `Rock`, `Psychic`, `Ice`, `Bug`, `Ghost`, `Steel`, `Dragon`, `Dark`, or `Fairy`.
+
+To generate a pokemon with multiple types, just seperate the type list with `/`. For example,
+
+```
+python main.py --mode sample --save_dir logs --load_dir pretrained --types Poison/Steel
+```
+
 
 # Results 
 
+TBD - training curves, visualizations, etc.
 
-# Requirements
-```
-torch 
-torchvision
-PIL
-tensorboard
-numpy
-```
 
-# Fun notes
+# Observations
 
-ConvTranspose2D --> Conv2D + Upsample
-BatchNormalization is important! 
-Base image size 
-Making it harder for the discriminator -
-label switching/label smoothing
-add gaussian noise 
-dropout to discriminator
+Some random observations I made while putting together this project! I've done GAN work before, but this is the first time I tried to put together a lot of the network architecture from scratch. A fun learning experience!
+- Additional level of supervision given by reconstruction loss is a huge win in terms of training stability
+- Checkerboard artifacts are alleviated by switching uses of ConvTranspose2D to Conv2D + Upsample layers. Another factor is the base image size you start with in your decoder - make sure it doesn't start too large, otherwise you'll get square artifacts.
+- BatchNormalization is king! Trust me, just do it. Dropout is also very, very good.
+- Soutmith Ganhack's repository is a great place to go if things are looking weird. Lots of great practical tips. Would suggest looking through the issue tracker as well if you have something specific you're running into that's not immediately addressed by the main page.
+- Be patient. Things will look ugly at first, but will slowly improve and get better!
+
 
 # References
 
 Some inspirations for this work!
 
-- AAE: [code](https://github.com/neale/Adversarial-Autoencoder)
-- AEGAN (Lazarou20): [paper](https://arxiv.org/abs/2004.05472), [code](https://github.com/ConorLazarou/PokeGAN)
-- CAAE (Zhang17): [paper](http://web.eecs.utk.edu/~zzhang61/docs/papers/2017_CVPR_Age.pdf), [code](https://github.com/mattans/AgeProgression/tree/v1.0.0)
-Soumith Ganhacks: 
-
-# TODO:
-Polish readme
-Polish code
-Write sample function
-correct device placement
+- AAE (Makhzani '15): [paper](https://arxiv.org/abs/1511.05644), [code](https://github.com/neale/Adversarial-Autoencoder)
+- AEGAN (Lazarou '20): [paper](https://arxiv.org/abs/2004.05472), [code](https://github.com/ConorLazarou/PokeGAN)
+- CAAE (Zhang '17): [paper](http://web.eecs.utk.edu/~zzhang61/docs/papers/2017_CVPR_Age.pdf), [code](https://github.com/mattans/AgeProgression/tree/v1.0.0)
+- Soumith Ganhacks: [github](https://github.com/soumith/ganhacks)

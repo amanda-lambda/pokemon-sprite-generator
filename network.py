@@ -181,11 +181,12 @@ class SpriteGAN(nn.Module):
         -------
         torch.Tensor: a generated sprite, of size (?, 3, IMAGE_SIZE, IMAGE_SIZE)
         '''
-        bs = y.shape[0]
-        z = torch.randn((bs, self.latent_dim))
-        if self.use_gpu:
-            z = z.cuda()
-        x = self.decoder(z, y)
+        with torch.no_grad():
+            bs = y.shape[0]
+            z = torch.randn((bs, self.latent_dim))
+            if self.use_gpu:
+                z = z.cuda()
+            x = self.decoder(z, y)
         return x 
     
 
@@ -327,6 +328,7 @@ class Decoder(nn.Module):
             size of latent dimension, by default 10
         '''
         super(Decoder,self).__init__()
+        self.latent_dim = latent_dim
 
         def color_picker(input_dim: int, output_dim: int):
             '''
@@ -427,6 +429,7 @@ class Decoder(nn.Module):
         return out
 
 
+
 class DiscriminatorImage(nn.Module):
 
     def __init__(self, num_filters: int = 64):
@@ -489,6 +492,7 @@ class DiscriminatorImage(nn.Module):
         return out.squeeze()
 
 
+
 class DiscriminatorLatent(nn.Module):
 
     def __init__(self, num_filters: int = 64, latent_dim: int = 100):
@@ -514,6 +518,7 @@ class DiscriminatorLatent(nn.Module):
             spectral_norm(nn.Linear(num_filters,1))
         )
     
+
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         '''
         Forward pass of latent discriminator.
