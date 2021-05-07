@@ -5,13 +5,39 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as tvt 
 from torchvision.utils import make_grid
+
 from dataset import setup_dataloader
+from network import SpriteGAN
+
 
 
 def train(root_dir: str, csv_file: str, 
           load_dir: str, save_dir: str, 
           num_epochs: int, batch_size: int, lr: float, 
-          use_gpu: bool):
+          use_gpu: bool) -> None:
+    '''
+    Train the SpriteGAN.
+    Saves checkpoints and training logs to `save_dir`.
+
+    Parameters
+    ----------
+    root_dir: str
+        root folder for training data
+    csv_file: str
+        sprites metadata training file, contains image paths and type labels
+    load_dir: str
+        folder to load network weights from
+    save_dir: str
+        folder to save network weights to
+    num_epochs: int
+        number of epochs to train the network
+    batch_size: int
+        batch size for each network update step
+    lr: float
+        learning rate for generator, discriminator will have learning rate lr/2
+    use_gpu: bool
+        Set to true to run training on GPU, otherwise run on CPU
+    '''
     # Dataloader
     loader = setup_dataloader(batch_size, root_dir, csv_file)
 
@@ -21,10 +47,7 @@ def train(root_dir: str, csv_file: str,
     writer = SummaryWriter(save_dir)
 
     # Network
-    from network import SpriteGAN
-    sprite_gan = SpriteGAN(lr, batch_size)
-    if use_gpu:
-        sprite_gan = sprite_gan.cuda()
+    sprite_gan = SpriteGAN(lr, batch_size, use_gpu)
 
     # Train
     step = 0
@@ -61,7 +84,11 @@ def train(root_dir: str, csv_file: str,
                 writer.add_image('image/orig', orig_image, epoch)
 
 
-def test(root_dir, csv_file, load_dir):
+def sample(load_dir: str):
+    # Network
+    sprite_gan = SpriteGAN(lr, batch_size)
+    if use_gpu:
+        sprite_gan = sprite_gan.cuda()
     return
 
 if __name__ == '__main__':
@@ -75,11 +102,11 @@ if __name__ == '__main__':
     # DIRECTORY options
     parser.add_argument("--save_dir",
                         type=str,
-                        help="path to save model and logs",
+                        help="path to save model, logs, generated images",
                         default="logs")
     parser.add_argument("--load_dir",
                         type=str,
-                        help="name of model to load")
+                        help="path to model to load")
 
     # TRAINING options
     parser.add_argument("--root_dir",
@@ -105,6 +132,8 @@ if __name__ == '__main__':
     parser.add_argument("--use_gpu",
                         help="if set, train on gpu instead of cpu",
                         action="store_true")
+    
+    # TESTING options
 
     options = parser.parse_args()
     if options.mode == 'train':

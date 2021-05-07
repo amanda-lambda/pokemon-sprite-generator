@@ -34,6 +34,8 @@ LABEL_TO_TYPE = {v:k for (k,v) in TYPE_TO_LABEL.items()}
 
 NUM_TYPES = len(TYPE_TO_LABEL.keys())
 
+IMAGE_SIZE = 96
+
 def pil_loader(path: str) -> Image:
     '''
     Load image using PIL. 

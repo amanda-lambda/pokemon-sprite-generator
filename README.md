@@ -96,3 +96,9 @@ Some inspirations for this work!
 - AEGAN (Lazarou20): [paper](https://arxiv.org/abs/2004.05472), [code](https://github.com/ConorLazarou/PokeGAN)
 - CAAE (Zhang17): [paper](http://web.eecs.utk.edu/~zzhang61/docs/papers/2017_CVPR_Age.pdf), [code](https://github.com/mattans/AgeProgression/tree/v1.0.0)
 Soumith Ganhacks: 
+
+# TODO:
+Polish readme
+Polish code
+Write sample function
+correct device placement
