@@ -45,15 +45,10 @@ class SpriteGAN(nn.Module):
         self.disc_image = DiscriminatorImage(ndf, latent_dim)
         self.disc_latent = DiscriminatorLatent(ndf, latent_dim)
 
-        self.encoder.apply(weights_init)
-        self.decoder.apply(weights_init)
-        self.disc_image.apply(weights_init)
-        self.disc_latent.apply(weights_init)
-
         # Optimizers
         self.opt_generator = torch.optim.Adam(list(self.encoder.parameters()) + list(self.decoder.parameters()), lr)
-        self.opt_disc_image = torch.optim.Adam(self.disc_image.parameters(), lr, betas=(0.5, 0.9))
-        self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr, betas=(0.5, 0.9))
+        self.opt_disc_image = torch.optim.Adam(self.disc_image.parameters(), lr/2, betas=(0.5, 0.9))
+        self.opt_disc_latent = torch.optim.Adam(self.disc_latent.parameters(), lr/2, betas=(0.5, 0.9))
 
         # Losses 
         self.real_label = torch.ones(batch_size).cuda()
@@ -61,46 +56,77 @@ class SpriteGAN(nn.Module):
     
     def forward(self, x: torch.Tensor, y: torch.Tensor):
 
-        # Latent Discriminator loss
+        # Discriminator loss
         self.opt_disc_latent.zero_grad()
-        z = self.encoder(x)
-        x_recon = self.decoder(z, y)
-
-        z_prior = torch.randn((self.batch_size, self.latent_dim), requires_grad=True)
-        z_prior = z_prior.cuda()
-        conf_z_prior = self.disc_latent(z_prior)
-        conf_z = self.disc_latent(z.detach())
-
-        disc_latent_loss = F.binary_cross_entropy_with_logits(conf_z_prior, self.real_label) + F.binary_cross_entropy_with_logits(conf_z, self.fake_label)
-        disc_latent_loss.backward()
-        self.opt_disc_latent.step()
-
-        # Image Discriminator loss
         self.opt_disc_image.zero_grad()
-        conf_x = self.disc_image(x, y)
-        conf_x_recon = self.disc_image(x_recon.detach(), y)
 
-        disc_image_loss = F.binary_cross_entropy_with_logits(conf_x, self.real_label) + F.binary_cross_entropy_with_logits(conf_x_recon, self.fake_label)
-        disc_image_loss.backward()
+        z = torch.randn((self.batch_size, self.latent_dim), requires_grad=True)
+        z = z.cuda()
+
+        with torch.no_grad():
+            x_hat = self.decoder(z, y)
+            z_hat = self.encoder(x)
+            x_tilde = self.decoder(z_hat, y)
+            z_tilde = self.encoder(x_hat)
+
+        x_conf = self.disc_image(x, y)
+        x_hat_conf = self.disc_image(x_hat, y)
+        x_tilde_conf = self.disc_image(x_tilde, y)
+        z_conf = self.disc_latent(z)
+        z_hat_conf = self.disc_latent(z_hat)
+        z_tilde_conf = self.disc_latent(z_tilde)
+
+        x_loss = 2 * F.binary_cross_entropy_with_logits(x_conf, self.real_label)
+        x_hat_loss = F.binary_cross_entropy_with_logits(x_hat_conf, self.fake_label)
+        x_tilde_loss = F.binary_cross_entropy_with_logits(x_tilde_conf, self.fake_label)
+        z_loss = 2 * F.binary_cross_entropy_with_logits(z_conf, self.real_label)
+        z_hat_loss = F.binary_cross_entropy_with_logits(z_hat_conf, self.fake_label)
+        z_tilde_loss = F.binary_cross_entropy_with_logits(z_tilde_conf, self.fake_label)
+
+        disc_image_loss = (x_loss + x_hat_loss + x_tilde_loss) / 4
+        disc_latent_loss = (z_loss + z_hat_loss + z_tilde_loss) / 4
+        disc_loss = disc_image_loss + disc_latent_loss
+
+        disc_loss.backward()
+        self.opt_disc_latent.step()
         self.opt_disc_image.step()
 
         # Generator loss
         self.opt_generator.zero_grad()
-        z = self.encoder(x)
-        x_recon = self.decoder(z, y)
-        conf_image = self.disc_image(x_recon, y)
-        conf_latent = self.disc_latent(z)
 
-        recon_loss = F.l1_loss(x_recon, x)
-        gan_loss = F.binary_cross_entropy_with_logits(conf_image, self.real_label) + F.binary_cross_entropy_with_logits(conf_latent, self.real_label)
-        gen_loss = recon_loss + 0.1 * gan_loss
+        z2 = torch.randn((self.batch_size, self.latent_dim), requires_grad=True)
+        z2 = z2.cuda()
+
+        x_hat = self.decoder(z2, y)
+        z_hat = self.encoder(x)
+        x_tilde = self.decoder(z_hat, y)
+        z_tilde = self.encoder(x_hat)
+
+        x_hat_conf = self.disc_image(x_hat, y)
+        z_hat_conf = self.disc_latent(z_hat)
+        x_tilde_conf = self.disc_image(x_tilde, y)
+        z_tilde_conf = self.disc_latent(z_tilde)
+
+        x_hat_loss = F.binary_cross_entropy_with_logits(x_hat_conf, self.real_label)
+        z_hat_loss = F.binary_cross_entropy_with_logits(z_hat_conf, self.real_label)
+        x_tilde_loss = F.binary_cross_entropy_with_logits(x_tilde_conf, self.real_label)
+        z_tilde_loss = F.binary_cross_entropy_with_logits(z_tilde_conf, self.real_label)
+
+        x_recon_loss = F.l1_loss(x_tilde, x) 
+        z_recon_loss = F.mse_loss(z_tilde, z) * 0.5
+
+        x_loss = (x_hat_loss + x_tilde_loss) / 2 * 0.005
+        z_loss = (z_hat_loss + z_tilde_loss) / 2 * 0.1
+        gen_loss = x_loss + z_loss + x_recon_loss + z_recon_loss
+
         gen_loss.backward()
         self.opt_generator.step()
 
         # Return losses
         loss_dict = {
-            'generator/reconstruction_loss': recon_loss,
-            'generator/gan_loss': gan_loss,
+            'generator/im_recon_loss': x_recon_loss,
+            'generator/latent_recon_loss': z_recon_loss,
+            'generator/gan_loss': x_loss + z_loss,
             'generator/total_loss': gen_loss,
             'discriminator/latent_loss': disc_latent_loss,
             'discriminator/image_loss': disc_image_loss
@@ -205,21 +231,17 @@ class Encoder(nn.Module):
 
         self.layers = nn.Sequential(
             nn.Conv2d(3,num_filters,5,2,2),
-            # nn.BatchNorm2d(num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             nn.Conv2d(num_filters,2*num_filters,5,2,2),
-            # nn.BatchNorm2d(2*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             nn.Conv2d(2*num_filters,4*num_filters,5,2,2),
-            # nn.BatchNorm2d(4*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             nn.Conv2d(4*num_filters,8*num_filters,5,2,2),
-            # nn.BatchNorm2d(8*num_filters),
             nn.Dropout(p=0.3),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
         )
         self.fc = nn.Linear(18432,latent_dim)
 
@@ -377,24 +399,24 @@ class DiscriminatorImage(nn.Module):
 
         self.conv_img = nn.Sequential(
             spectral_norm(nn.Conv2d(3,num_filters,4,2,1)),
-            nn.LeakyReLU(0.2, inplace=True)
+            nn.LeakyReLU()
         )
         self.conv_l = nn.Sequential(
             nn.ConvTranspose2d(NUM_TYPES, NUM_TYPES, 48, 1, 0),
-            nn.LeakyReLU(0.2, inplace=True)
+            nn.LeakyReLU()
         )
         self.total_conv = nn.Sequential(
             spectral_norm(nn.Conv2d(num_filters+NUM_TYPES,num_filters*2,4,2,1)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Conv2d(num_filters*2,num_filters*4,4,2,1)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Conv2d(num_filters*4,num_filters*8,4,2,1)),
-            nn.LeakyReLU(0.2, inplace=True)
+            nn.LeakyReLU()
         )
 
         self.fc = nn.Sequential(
             spectral_norm(nn.Linear(8*6*6*num_filters,1024)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Linear(1024,1))
         )
 
@@ -440,11 +462,11 @@ class DiscriminatorLatent(nn.Module):
 
         self.layers = nn.Sequential(
             spectral_norm(nn.Linear(latent_dim,num_filters*4)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Linear(num_filters*4,num_filters*2)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Linear(num_filters*2,num_filters)),
-            nn.LeakyReLU(0.2, inplace=True),
+            nn.LeakyReLU(),
             spectral_norm(nn.Linear(num_filters,1))
         )
     
