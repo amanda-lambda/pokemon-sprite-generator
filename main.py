@@ -123,6 +123,8 @@ def sample(types: str, load_dir: str, save_dir: str, use_gpu: bool) -> None:
     x = model.forward(z, y)
 
     # Save
+    if not os.path.exists(save_dir):
+        os.mkdir(save_dir)
     save_path = os.path.join(save_dir, str(uuid.uuid1()) + '.png')
     save_image(x.squeeze(), save_path)
 

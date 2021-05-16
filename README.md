@@ -1,14 +1,18 @@
 # Pokemon Sprite Generator
 
+| `Fire`  | `Water` | `Grass` | `Electric` | `Ice` | `Rock` | `Poison` |
+| ---- | ---- |  ---- |  ---- | ---- | ---- | ---- | 
+| ![fire](doc/fire.png)  | ![water](doc/water.png) | ![grass](doc/grass.png) | ![electric](doc/electric.png) | ![ice](doc/ice.png) | ![rock](doc/rock.png) | ![poison](doc/poison.png) |
+
 Generate a pokemon sprite, given specified classes.
 
 This makes it a little different than other similar pokemon sprite generators - you are able to have more control over the sprite generation by indicating multiple types, rather than just getting a random pokemon of any type.
 
 A complementary repository to the [PokemonGenerator Project](https://github.com/SpenDM/PokemonGenerator), which creates pokedex text entries based on type.
 
-For some more nitty gritty technical details: The network is a hybrid between an adversarial autoencoder (AAE), a conditional autoencoder (CAE), and an autoencoding generative adversarial network (AEGAN) - see references below for my sources of inspiration! One of the attractive things about AEGAN is its training stability and robustness; I've had a lot of trouble in the past getting GANs to train stably, so this was a hugely appealing factor. Another cool aspect of this network was the concept of a "ColorPicker" (essentially a sprite color pallette), which greatly helps with the overall perceptual quality of the generated sprite. I decided to incorporate the vconditional aspects of a CAE so I could get more controllable image generation. i.e., instead of just being able to generate a Pokemon, I'd be able to generate a Pokemon based on what types I specified.
+For some more nitty gritty technical details: The network is a hybrid between an adversarial autoencoder (AAE), a conditional autoencoder (CAE), and an autoencoding generative adversarial network (AEGAN) - see references below for my sources of inspiration! One of the attractive things about AEGAN is its training stability and robustness; I've had a lot of trouble in the past getting GANs to train stably, so this was a hugely appealing factor. Another cool aspect of this network was the concept of a "ColorPicker" (essentially a sprite color pallette), which greatly helps with the overall perceptual quality of the generated sprite. I decided to incorporate the conditional aspects of a CAE so I could get more controllable image generation. i.e., instead of just being able to generate a Pokemon, I'd be able to generate a Pokemon based on what types I specified.
 
-Below is a rough architecture flow diagram of what's happening during training. In this case `x` and `r` are images, `z` are latents, and `y` are one-hot encoded type vectors. We can compute reconstruction losses between `recon_loss(x, r')` and generator GAN losses from  `disc_image(r)`, `disc_image(r')`, `disc_latent(z')`, and `disc_latent(z'')`. Conversely, we can compute discriminator losses from `disc_image(x, r, r')` and `disc_latent(z, z',z'')`. 
+Below is a rough architecture flow diagram of what's happening during training. In this case `x` and `r` are images, `z` are latents, and `y` are one-hot encoded type vectors. We can compute reconstruction losses between `recon_loss(x, r')` and generator GAN losses from  `disc_image(r)`, `disc_image(r')`, `disc_latent(z')`, and `disc_latent(z'')`. Conversely, we can compute discriminator losses from `disc_image(x)`, `disc_image(r)`, `disc_image(r')` and `disc_latent(z)`, `disc_image(z')`,`disc_image(z'')`. 
 
 ![architecture](doc/arch.png)
 
@@ -81,7 +85,7 @@ optional arguments:
 
 ## Train 
 
-To train the network from scratch, I'd highly recommend using a CUDA-enabled GPU. It took me about ____ TBD. I'd also recommend keeping the default network hyperparameters. So, your command to train might look like:
+To train the network from scratch, I'd highly recommend using a CUDA-enabled GPU. It took me about 9 days on an nVidia GeForce RTX 2080. So, your command to train might look like:
 
 ```
 python main.py --mode train --save_dir logs 
@@ -105,6 +109,26 @@ python main.py --mode sample --save_dir logs --load_dir pretrained --types Poiso
 
 
 # Results 
+
+Here are some samples of generated sprites after training:
+| `Fire`  | `Water` | `Grass` | `Electric` | `Ice` | `Rock` | `Poison` |
+| ---- | ---- |  ---- |  ---- | ---- | ---- | ---- | 
+| ![fire](doc/fire.png)  | ![water](doc/water.png) | ![grass](doc/grass.png) | ![electric](doc/electric.png) | ![ice](doc/ice.png) | ![rock](doc/rock.png) | ![poison](doc/poison.png) |
+
+
+Training takes patience! You can monitor your I imagine with some additional learning rate decay and additional steps, we could've gotten even better results. Here are some visualizations of randomly generated sprites at different points during training:
+
+| Step   | Generated Image                  |
+| ------ | -------------------------------- |
+| 300    | ![step300](doc/step_300.png)     |
+| 1300   | ![step1300](doc/step_1300.png)   |
+| 2540   | ![step2540](doc/step_2540.png)   |
+| 3820   | ![step3820](doc/step_3820.png)   |
+| 5940   | ![step5940](doc/step_5940.png)   |
+| 6920   | ![step6920](doc/step_6920.png)   |
+| 11300  | ![step11300](doc/step_11300.png) |
+| 15000  | ![step15000](doc/step_15000.png) |
+| 19500  | ![step19500](doc/step_19500.png) |
 
 TBD - training curves, visualizations, etc.
 
