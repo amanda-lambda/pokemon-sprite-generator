@@ -91,6 +91,11 @@ To train the network from scratch, I'd highly recommend using a CUDA-enabled GPU
 python main.py --mode train --save_dir logs 
 ```
 
+You can monitor your training progress with TensorBoard. We generate training losses, as well as visualize generated and reconstructed images at set intervals during training. To run TensorBoard on your current `save_dir` called `logs` for example, you can do:
+```
+tensorboard --logdir logs
+```
+
 ## Sample
 
 If you'd like to sample a pokemon using the pre-trained model, make sure to first download the pre-trained model weights from step 3 of the `Setup` section. To generate a pokemon, your command might look like:
@@ -116,7 +121,7 @@ Here are some samples of generated sprites after training:
 | ![fire](doc/fire.png)  | ![water](doc/water.png) | ![grass](doc/grass.png) | ![electric](doc/electric.png) | ![ice](doc/ice.png) | ![rock](doc/rock.png) | ![poison](doc/poison.png) |
 
 
-Training takes patience! You can monitor your I imagine with some additional learning rate decay and additional steps, we could've gotten even better results. Here are some visualizations of randomly generated sprites at different points during training:
+Training takes patience!r I imagine with some additional learning rate decay and additional steps, we could've gotten even better results. Here are some visualizations of randomly generated sprites at different points during training:
 
 | Step   | Generated Image                  |
 | ------ | -------------------------------- |
@@ -129,8 +134,6 @@ Training takes patience! You can monitor your I imagine with some additional lea
 | 11300  | ![step11300](doc/step_11300.png) |
 | 15000  | ![step15000](doc/step_15000.png) |
 | 19500  | ![step19500](doc/step_19500.png) |
-
-TBD - training curves, visualizations, etc.
 
 
 # Observations
